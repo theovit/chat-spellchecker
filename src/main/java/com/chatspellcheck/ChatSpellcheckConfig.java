@@ -28,4 +28,15 @@ public interface ChatSpellcheckConfig extends Config
 	{
 		return true;
 	}
+
+	@ConfigItem(
+		keyName = IgnoreListStore.IGNORE_LIST_KEY,
+		name = "Ignored words",
+		description = "Words the spellchecker won't flag. Comma-separated - remove a word here to un-ignore it.",
+		position = 3
+	)
+	default String ignoreList()
+	{
+		return "";
+	}
 }

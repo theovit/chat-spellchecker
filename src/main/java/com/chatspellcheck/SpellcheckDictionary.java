@@ -9,6 +9,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
+import javax.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -18,6 +19,7 @@ import lombok.extern.slf4j.Slf4j;
  * throwing, so a corrupt/missing resource can never break the plugin.
  */
 @Slf4j
+@Singleton
 class SpellcheckDictionary
 {
 	private static final String ALPHABET = "abcdefghijklmnopqrstuvwxyz";

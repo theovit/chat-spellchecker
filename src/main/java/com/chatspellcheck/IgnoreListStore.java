@@ -4,13 +4,18 @@ import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.Set;
 import javax.inject.Inject;
+import javax.inject.Singleton;
 import net.runelite.client.config.ConfigManager;
+import net.runelite.client.eventbus.Subscribe;
+import net.runelite.client.events.ConfigChanged;
 
 /**
- * Persists user-added "don't flag this word" entries via {@link ConfigManager} under a hidden
- * (non-{@code @ConfigItem}) key, so they ride along with the user's RuneLite profile. No removal
- * UI in v1 — additive only.
+ * Persists user-added "don't flag this word" entries via {@link ConfigManager}, exposed as the
+ * {@code ignoreList} {@code @ConfigItem} on {@link ChatSpellcheckConfig} so the user can review
+ * and remove entries directly in the plugin's settings panel. Since edits can happen there
+ * (bypassing {@link #add}), this also refreshes its in-memory copy on {@link ConfigChanged}.
  */
+@Singleton
 class IgnoreListStore
 {
 	static final String CONFIG_GROUP = "chat-spellcheck";
@@ -31,6 +36,15 @@ class IgnoreListStore
 		String stored = configManager.getConfiguration(CONFIG_GROUP, IGNORE_LIST_KEY);
 		ignored.clear();
 		ignored.addAll(deserialize(stored));
+	}
+
+	@Subscribe
+	public void onConfigChanged(ConfigChanged event)
+	{
+		if (CONFIG_GROUP.equals(event.getGroup()) && IGNORE_LIST_KEY.equals(event.getKey()))
+		{
+			load();
+		}
 	}
 
 	boolean contains(String word)

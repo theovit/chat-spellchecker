@@ -1,85 +1,64 @@
 package com.chatspellcheck;
 
-import java.awt.event.KeyEvent;
 import java.util.Objects;
 import javax.inject.Inject;
+import javax.inject.Singleton;
 import lombok.Getter;
-import net.runelite.api.Client;
-import net.runelite.api.VarClientStr;
-import net.runelite.api.events.VarClientStrChanged;
 import net.runelite.client.eventbus.Subscribe;
-import net.runelite.client.input.KeyListener;
+import net.runelite.client.events.ChatboxInput;
 
 /**
- * Intercepts Enter in the chatbox: if typos are present, consumes the keypress once and waits
- * for a second, unmodified Enter before letting the real keypress (and thus the send) through.
- * Never alters the outgoing message and never injects input of its own.
+ * Intercepts the chatbox send action: if typos are present, consumes the event once (blocking
+ * the send, per RuneLite's own {@code ChatInputManager}) and waits for a second, unmodified send
+ * attempt before letting it through. Never alters the outgoing message and never injects input -
+ * {@link ChatboxInput#consume()} is RuneLite's own sanctioned veto mechanism for this, the same
+ * one its built-in chat-command handling uses.
  */
-class SendGuard implements KeyListener
+@Singleton
+class SendGuard
 {
 	private final ChatSpellcheckConfig config;
 	private final ChatInputTracker chatInputTracker;
-	private final Client client;
 
 	@Getter
 	private volatile boolean pendingConfirmation;
+	@Getter
 	private volatile String pendingText;
 
 	@Inject
-	SendGuard(ChatSpellcheckConfig config, ChatInputTracker chatInputTracker, Client client)
+	SendGuard(ChatSpellcheckConfig config, ChatInputTracker chatInputTracker)
 	{
 		this.config = config;
 		this.chatInputTracker = chatInputTracker;
-		this.client = client;
 	}
 
 	@Subscribe
-	public void onVarClientStrChanged(VarClientStrChanged event)
+	public void onChatboxInput(ChatboxInput event)
 	{
-		if (event.getIndex() != VarClientStr.CHATBOX_TYPED_TEXT || !pendingConfirmation)
+		if (!config.blockOnTypos())
 		{
 			return;
 		}
 
-		if (!Objects.equals(client.getVarcStrValue(VarClientStr.CHATBOX_TYPED_TEXT), pendingText))
-		{
-			clearPending();
-		}
-	}
+		String text = event.getValue();
 
-	@Override
-	public void keyPressed(KeyEvent e)
-	{
-		if (e.getKeyCode() != KeyEvent.VK_ENTER || !config.blockOnTypos())
+		if (pendingConfirmation && Objects.equals(text, pendingText))
 		{
-			return;
-		}
-
-		String currentText = client.getVarcStrValue(VarClientStr.CHATBOX_TYPED_TEXT);
-
-		if (pendingConfirmation && Objects.equals(currentText, pendingText))
-		{
-			// Second Enter with the text unchanged: let the real keypress through.
+			// Second send attempt with the text unchanged: let it through.
 			clearPending();
 			return;
 		}
 
 		if (!chatInputTracker.getFlaggedWords().isEmpty())
 		{
-			e.consume();
-			pendingText = currentText;
+			event.consume();
+			pendingText = text;
 			pendingConfirmation = true;
 		}
-	}
-
-	@Override
-	public void keyReleased(KeyEvent e)
-	{
-	}
-
-	@Override
-	public void keyTyped(KeyEvent e)
-	{
+		else
+		{
+			clearPending();
+		}
 	}
 
 	void reset()

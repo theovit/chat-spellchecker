@@ -7,29 +7,30 @@ import org.junit.Test;
 public class ChatInputGeometryTest
 {
 	@Test
-	public void identityWhenWidgetTextHasNoExtraChars()
+	public void findsTypedTextWrappedInFormattingTags()
 	{
-		assertEquals(3, ChatInputGeometry.mapOffset("hello world", "hello world", 3));
+		String widgetText = "<img=2>Name: <col=0000ff>hello </col><col=0000ff>*</col>";
+
+		assertEquals(widgetText.indexOf("hello "), ChatInputGeometry.findTypedTextStart(widgetText, "hello "));
 	}
 
 	@Test
-	public void caretAtEndShiftsOnlyTheEndOffset()
+	public void findsTypedTextWithNoFormatting()
 	{
-		String typed = "hello";
-		String widget = "hello*";
-
-		assertEquals(0, ChatInputGeometry.mapOffset(typed, widget, 0));
-		assertEquals(6, ChatInputGeometry.mapOffset(typed, widget, 5));
+		assertEquals(0, ChatInputGeometry.findTypedTextStart("hello world", "hello world"));
 	}
 
 	@Test
-	public void caretMidStringShiftsOffsetsAfterIt()
+	public void missingReturnsNegative()
 	{
-		String typed = "helloworld";
-		String widget = "hello*world";
+		assertEquals(-1, ChatInputGeometry.findTypedTextStart("Press Enter to Chat...", "hello"));
+	}
 
-		assertEquals(4, ChatInputGeometry.mapOffset(typed, widget, 4));
-		assertEquals(6, ChatInputGeometry.mapOffset(typed, widget, 5));
-		assertEquals(11, ChatInputGeometry.mapOffset(typed, widget, 10));
+	@Test
+	public void picksTheLastOccurrence()
+	{
+		String widgetText = "no: <col=0000ff>no</col>";
+
+		assertEquals(widgetText.lastIndexOf("no"), ChatInputGeometry.findTypedTextStart(widgetText, "no"));
 	}
 }

@@ -9,8 +9,12 @@ import net.runelite.api.widgets.Widget;
  * the right-click ignore menu so bounding-box logic isn't duplicated.
  *
  * The offsets passed in are into the raw typed text ({@code VarClientStr.CHATBOX_TYPED_TEXT}),
- * but the input widget's rendered text has a single cursor glyph spliced in at the caret
- * position, so offsets are remapped onto the widget text before measuring pixel width.
+ * but the widget's rendered text additionally carries a name/icon prefix and
+ * {@code <col=...>...</col>} formatting tags around the typed portion and the cursor glyph (e.g.
+ * {@code <img=2>Name: <col=0000ff>hello </col><col=0000ff>*</col>}). Verified in-client: the raw
+ * typed text always appears as one unbroken substring of the widget text (the tags wrap around
+ * it, never split it), so its start is found with a plain substring search rather than an
+ * assumption about a single inserted cursor character.
  */
 final class ChatInputGeometry
 {
@@ -20,7 +24,7 @@ final class ChatInputGeometry
 
 	static Rectangle boundsOf(Widget inputWidget, String typedText, int startOffset, int endOffset)
 	{
-		if (inputWidget == null || typedText == null)
+		if (inputWidget == null || typedText == null || typedText.isEmpty())
 		{
 			return null;
 		}
@@ -38,9 +42,15 @@ final class ChatInputGeometry
 			return null;
 		}
 
-		int widgetStart = mapOffset(typedText, widgetText, startOffset);
-		int widgetEnd = mapOffset(typedText, widgetText, endOffset);
-		if (widgetStart < 0 || widgetEnd > widgetText.length() || widgetStart >= widgetEnd)
+		int typedStartInWidget = findTypedTextStart(widgetText, typedText);
+		if (typedStartInWidget < 0)
+		{
+			return null;
+		}
+
+		int widgetStart = typedStartInWidget + startOffset;
+		int widgetEnd = typedStartInWidget + endOffset;
+		if (widgetEnd > widgetText.length())
 		{
 			return null;
 		}
@@ -51,21 +61,8 @@ final class ChatInputGeometry
 		return new Rectangle(widgetBounds.x + xBefore, widgetBounds.y, wordWidth, widgetBounds.height);
 	}
 
-	static int mapOffset(String typedText, String widgetText, int typedOffset)
+	static int findTypedTextStart(String widgetText, String typedText)
 	{
-		int diff = widgetText.length() - typedText.length();
-		if (diff <= 0)
-		{
-			return typedOffset;
-		}
-
-		int caretIndex = 0;
-		int limit = Math.min(typedText.length(), widgetText.length());
-		while (caretIndex < limit && typedText.charAt(caretIndex) == widgetText.charAt(caretIndex))
-		{
-			caretIndex++;
-		}
-
-		return typedOffset < caretIndex ? typedOffset : typedOffset + diff;
+		return widgetText.lastIndexOf(typedText);
 	}
 }

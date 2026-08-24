@@ -36,7 +36,7 @@ ChatInputTracker  ──uses──▶ SpellcheckDictionary + IgnoreListStore
 ### `IgnoreListStore`
 - Persists user-added ignored words via `ConfigManager`, using a hidden (non-`@ConfigItem`) key scoped to the group `chat-spellcheck`, so it rides along with the user's RuneLite profile.
 - `add(String word)`, `contains(String word)`.
-- No removal UI in v1 (YAGNI) — out of scope unless requested later.
+- Exposed as an editable `ignoreList` `@ConfigItem` (comma-separated) on `ChatSpellcheckConfig`, so entries can be reviewed and removed directly in the plugin's settings panel.
 
 ### `ChatInputTracker`
 - `@Subscribe public void onVarClientStrChanged(VarClientStrChanged event)`, filtered to the chatbox-input var index.
@@ -84,6 +84,5 @@ Typing triggers `VarClientStrChanged` → `ChatInputTracker` recomputes the flag
 
 ## Out of Scope (v1)
 
-- Removing words from the ignore list via UI (only additive for now).
 - Remote/updatable dictionary — bundled wordlist only, no network calls.
 - Per-word suggestion cycling (only the top suggestion is shown).
