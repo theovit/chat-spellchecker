@@ -7,3 +7,9 @@ build
 nbactions.xml
 nb-configuration.xml
 nbproject/
+
+# Claude Code / agent working files - not part of the published plugin
+CLAUDE.md
+AGENTS.md
+.claude/
+docs/
