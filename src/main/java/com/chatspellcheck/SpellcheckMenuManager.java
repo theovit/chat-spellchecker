@@ -1,5 +1,6 @@
 package com.chatspellcheck;
 
+import java.awt.Color;
 import java.awt.Rectangle;
 import javax.inject.Inject;
 import net.runelite.api.Client;
@@ -14,19 +15,26 @@ import net.runelite.client.eventbus.Subscribe;
  * Adds a "add to spellcheck ignore list" entry when right-clicking a flagged word in the
  * chatbox input. Never adds entries that send an action to the server (MenuAction.RUNELITE is
  * handled entirely client-side).
+ *
+ * The menu's own background/panel is drawn natively by the client and isn't something a plugin
+ * can restyle, but the option text color is - wrapped in the same {@code <col=RRGGBB>} tag OSRS
+ * itself uses for menu entry text - so {@link ChatSpellcheckConfig#ignoreMenuColor()} controls
+ * that.
  */
 class SpellcheckMenuManager
 {
 	private final Client client;
 	private final ChatInputTracker chatInputTracker;
 	private final IgnoreListStore ignoreListStore;
+	private final ChatSpellcheckConfig config;
 
 	@Inject
-	SpellcheckMenuManager(Client client, ChatInputTracker chatInputTracker, IgnoreListStore ignoreListStore)
+	SpellcheckMenuManager(Client client, ChatInputTracker chatInputTracker, IgnoreListStore ignoreListStore, ChatSpellcheckConfig config)
 	{
 		this.client = client;
 		this.chatInputTracker = chatInputTracker;
 		this.ignoreListStore = ignoreListStore;
+		this.config = config;
 	}
 
 	@Subscribe
@@ -55,7 +63,7 @@ class SpellcheckMenuManager
 			}
 
 			client.getMenu().createMenuEntry(-1)
-				.setOption("Add '" + word.getWord() + "' to spellcheck ignore list")
+				.setOption(colorTag(config.ignoreMenuColor()) + "Add '" + word.getWord() + "' to spellcheck ignore list</col>")
 				.setTarget("")
 				.setType(MenuAction.RUNELITE)
 				.onClick(e -> onIgnoreClicked(word.getWord()));
@@ -67,5 +75,10 @@ class SpellcheckMenuManager
 	{
 		ignoreListStore.add(word);
 		chatInputTracker.recompute(ChatInputTracker.currentTypedText(client));
+	}
+
+	private static String colorTag(Color color)
+	{
+		return String.format("<col=%02x%02x%02x>", color.getRed(), color.getGreen(), color.getBlue());
 	}
 }

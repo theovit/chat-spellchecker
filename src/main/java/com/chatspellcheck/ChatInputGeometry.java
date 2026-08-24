@@ -64,6 +64,54 @@ final class ChatInputGeometry
 		return new Rectangle(textBlockStart + xBefore, widgetBounds.y, wordWidth, widgetBounds.height);
 	}
 
+	/**
+	 * The on-screen position right after the currently typed text - i.e. where the cursor sits
+	 * during normal (non mid-string-edit) typing. Used to anchor the suggestion box even when the
+	 * word it's for has been fully backspaced away and there's no {@link FlaggedWord} bounds left
+	 * to hang it off of.
+	 */
+	static Rectangle cursorBounds(Widget inputWidget, String typedText)
+	{
+		if (inputWidget == null || typedText == null)
+		{
+			return null;
+		}
+
+		FontTypeFace font = inputWidget.getFont();
+		String widgetText = inputWidget.getText();
+		Rectangle widgetBounds = inputWidget.getBounds();
+		if (font == null || widgetText == null || widgetBounds == null)
+		{
+			return null;
+		}
+
+		int textBlockStart = textBlockStart(inputWidget, font, widgetText, widgetBounds);
+
+		int cursorX;
+		if (typedText.isEmpty())
+		{
+			cursorX = textBlockStart;
+		}
+		else
+		{
+			int typedStartInWidget = findTypedTextStart(widgetText, typedText);
+			if (typedStartInWidget < 0)
+			{
+				return null;
+			}
+
+			int endInWidget = typedStartInWidget + typedText.length();
+			if (endInWidget > widgetText.length())
+			{
+				return null;
+			}
+
+			cursorX = textBlockStart + font.getTextWidth(widgetText.substring(0, endInWidget));
+		}
+
+		return new Rectangle(cursorX, widgetBounds.y, 0, widgetBounds.height);
+	}
+
 	// Public chat's input line is left-aligned within its widget, but private-message text
 	// (Chatbox.MES_TEXT2) is centered within a much wider container - assuming left-flush placed
 	// the underline/suggestion well to the left of the actual glyphs (confirmed in-game).

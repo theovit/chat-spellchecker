@@ -30,10 +30,21 @@ Implementation checklist for [chat-spellcheck-design.md](superpowers/specs/2026-
 - [x] `docs/CHANGELOG.md` entry
 - [x] `README.md` update
 
+## Suggestion quality & customization (2026-08-24)
+- [x] Frequency-ranked suggestions (`word-frequency-en.txt`, 50k words) — fixes both "wrold" → "wold"
+      instead of "world", and single-letter words like "a"/"i" being flagged (see below, now resolved)
+- [x] Contractions recognized (`contractions-en.txt`) — `don't`/`can't`/etc. no longer flagged
+- [x] Pinned/sticky suggestion while backspacing a misspelled word, with immediate clear at zero
+      characters and a configurable auto-hide timeout
+- [x] Split-colored suggestion text (typed-so-far vs. remaining)
+- [x] Full appearance customization: underline, suggestion box, blocked-message box, ignore-menu
+      text colors, and box font size, all in a new "Appearance" settings section
+- [x] Blocked-message notice redesigned as a boxed, colorable label anchored at the input line
+
 ## Known follow-ups (not blocking)
 - `runelite-plugin.properties` `author` is still a placeholder (`Nobody`) — update if publishing to the plugin hub.
-- Single-letter words (e.g. "a") get flagged as misspelled with odd suggestions (observed: "a" →
-  "ya") — ENABLE1 likely excludes 1-letter entries. Worth special-casing or adding "a"/"i" to the
-  OSRS-terms list.
 - Friends chat / clan chat / group chat compose haven't been explicitly tested — likely fine
   since they probably share `CHATINPUT`/`Chatbox.INPUT` with public chat, but not confirmed.
+- Right-click "ignore" menu entry's background/border can't be restyled (native client chrome,
+  see docs/DECISIONS.md). A custom overlay-drawn replacement was proposed and declined by the
+  user for now — revisit if this becomes a recurring complaint.

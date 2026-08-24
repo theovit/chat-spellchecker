@@ -7,35 +7,28 @@ import java.awt.FontMetrics;
 import java.awt.Graphics2D;
 import java.awt.Rectangle;
 import java.util.List;
-import java.util.Objects;
 import javax.inject.Inject;
 import net.runelite.api.Client;
 import net.runelite.api.FontTypeFace;
-import net.runelite.api.Point;
 import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.widgets.Widget;
 import net.runelite.client.ui.FontManager;
 import net.runelite.client.ui.overlay.Overlay;
 import net.runelite.client.ui.overlay.OverlayLayer;
 import net.runelite.client.ui.overlay.OverlayPosition;
-import net.runelite.client.ui.overlay.OverlayUtil;
 
 /**
- * Draws an underline under each flagged word, a boxed suggestion label to the right of the word
- * currently being typed (if it's flagged), and the send-block confirmation banner. Only ever
- * reads state already computed by {@link ChatInputTracker} and {@link SendGuard} - never
- * re-tokenizes or re-checks the dictionary itself, so per-frame cost stays cheap.
+ * Draws an underline under each flagged word, a boxed suggestion label at the cursor for
+ * {@link ChatInputTracker#getCurrentWordSuggestion()}, and a boxed "message blocked" notice
+ * anchored at the input line. Only ever reads state already computed by {@link ChatInputTracker}
+ * and {@link SendGuard} - never re-tokenizes or re-checks the dictionary itself, so per-frame
+ * cost stays cheap.
  */
 class ChatSpellcheckOverlay extends Overlay
 {
-	private static final Color UNDERLINE_COLOR = new Color(255, 64, 64);
-	private static final Color BANNER_COLOR = new Color(255, 200, 0);
-	private static final Color SUGGESTION_BG_COLOR = new Color(20, 20, 20, 235);
-	private static final Color SUGGESTION_BORDER_COLOR = new Color(255, 180, 50);
-	private static final Color SUGGESTION_TEXT_COLOR = new Color(255, 220, 150);
-	private static final int SUGGESTION_PADDING_X = 5;
-	private static final int SUGGESTION_PADDING_Y = 3;
-	private static final int SUGGESTION_GAP = 6;
+	private static final int BOX_PADDING_X = 5;
+	private static final int BOX_PADDING_Y = 3;
+	private static final int BOX_GAP = 6;
 	private static final long PM_BANNER_DURATION_MS = 3000;
 
 	private final Client client;
@@ -61,31 +54,43 @@ class ChatSpellcheckOverlay extends Overlay
 		String typedText = ChatInputTracker.currentTypedText(client);
 		boolean widgetUsable = inputWidget != null && !inputWidget.isHidden();
 
-		if (config.blockOnTypos() && sendGuard.isPendingConfirmation())
+		if (config.blockOnTypos() && sendGuard.isPendingConfirmation()
+			&& System.currentTimeMillis() - sendGuard.getPendingSince() < PM_BANNER_DURATION_MS)
 		{
-			if (widgetUsable && Objects.equals(typedText, sendGuard.getPendingText()))
+			// The client clears the input box on Enter regardless of whether we block the send
+			// (confirmed in-game for both public/clan chat and private messages), and we can't
+			// repopulate it ourselves - RuneLite's guidelines forbid programmatically inserting
+			// text into the chatbox. So this is a timed notice rather than a persisted-text
+			// comparison: it tells the player the message was blocked and to retype it, drawn
+			// right at the (now-empty) input line rather than up in the chat history area.
+			Rectangle anchor = bannerAnchor(inputWidget, widgetUsable, typedText);
+			if (anchor != null)
 			{
-				// Public/clan chat: the compose box persists across the block, so the banner
-				// stays up until the text changes (matching the "retype it to confirm" flow).
-				renderConfirmBanner(graphics, inputWidget, "Typos found - press Enter again to send");
-			}
-			else if (System.currentTimeMillis() - sendGuard.getPendingSince() < PM_BANNER_DURATION_MS)
-			{
-				// Private messages: the compose window closes on Enter even when blocked, so
-				// there's no persisted text to compare against - show a timed banner instead.
-				renderConfirmBanner(graphics, inputWidget, "Typos found - message blocked, retype to send");
+				renderConfirmBanner(graphics, anchor, "Typos found - message blocked, retype to send");
 			}
 		}
 
 		if (widgetUsable && config.highlightMisspelledWords())
 		{
-			renderFlaggedWords(graphics, inputWidget, typedText);
+			renderUnderlines(graphics, inputWidget, typedText);
+
+			String suggestion = chatInputTracker.getCurrentWordSuggestion();
+			boolean timedOut = config.suggestionTimeoutEnabled()
+				&& System.currentTimeMillis() - chatInputTracker.getCurrentWordSuggestionSince() >= config.suggestionTimeoutSeconds() * 1000L;
+			if (suggestion != null && !timedOut)
+			{
+				Rectangle cursor = ChatInputGeometry.cursorBounds(inputWidget, typedText);
+				if (cursor != null)
+				{
+					renderSuggestionBox(graphics, cursor, suggestion, chatInputTracker.getCurrentWordSuggestionMatchedLength());
+				}
+			}
 		}
 
 		return null;
 	}
 
-	private void renderFlaggedWords(Graphics2D graphics, Widget inputWidget, String typedText)
+	private void renderUnderlines(Graphics2D graphics, Widget inputWidget, String typedText)
 	{
 		List<FlaggedWord> flagged = chatInputTracker.getFlaggedWords();
 		if (flagged.isEmpty())
@@ -94,11 +99,7 @@ class ChatSpellcheckOverlay extends Overlay
 		}
 
 		FontTypeFace widgetFont = inputWidget.getFont();
-		graphics.setColor(UNDERLINE_COLOR);
-
-		WordToken lastToken = lastToken(typedText);
-		FlaggedWord currentWord = null;
-		Rectangle currentWordBounds = null;
+		graphics.setColor(config.underlineColor());
 
 		for (FlaggedWord word : flagged)
 		{
@@ -110,60 +111,92 @@ class ChatSpellcheckOverlay extends Overlay
 
 			int y = bounds.y + (widgetFont != null ? widgetFont.getBaseline() + 2 : bounds.height - 1);
 			graphics.drawLine(bounds.x, y, bounds.x + bounds.width, y);
-
-			if (lastToken != null && word.getStartOffset() == lastToken.getStartOffset() && word.getEndOffset() == lastToken.getEndOffset())
-			{
-				currentWord = word;
-				currentWordBounds = bounds;
-			}
-		}
-
-		if (currentWord != null && currentWord.getSuggestion() != null)
-		{
-			renderSuggestionBox(graphics, currentWordBounds, currentWord.getSuggestion());
 		}
 	}
 
-	private static WordToken lastToken(String typedText)
+	// Anchored to the cursor position rather than a specific word's bounds, since a pinned
+	// suggestion (see ChatInputTracker) can still be showing after its word has been fully
+	// backspaced away, when there's no FlaggedWord bounds left to hang it off of.
+	private void renderSuggestionBox(Graphics2D graphics, Rectangle cursor, String suggestion, int matchedLength)
 	{
-		List<WordToken> tokens = WordTokenizer.tokenize(typedText);
-		return tokens.isEmpty() ? null : tokens.get(tokens.size() - 1);
-	}
-
-	private void renderSuggestionBox(Graphics2D graphics, Rectangle wordBounds, String suggestion)
-	{
-		Font font = FontManager.getRunescapeSmallFont();
+		Font font = boxFont();
 		graphics.setFont(font);
 		FontMetrics metrics = graphics.getFontMetrics(font);
 
-		int textWidth = metrics.stringWidth(suggestion);
-		int boxWidth = textWidth + SUGGESTION_PADDING_X * 2;
-		int boxHeight = metrics.getAscent() + metrics.getDescent() + SUGGESTION_PADDING_Y * 2;
-		int boxX = wordBounds.x + wordBounds.width + SUGGESTION_GAP;
-		int boxY = wordBounds.y + (wordBounds.height - boxHeight) / 2;
+		Rectangle box = boxBounds(metrics, suggestion, cursor);
+		drawBox(graphics, box, config.suggestionBackgroundColor(), config.suggestionBorderColor());
 
-		graphics.setColor(SUGGESTION_BG_COLOR);
-		graphics.fillRoundRect(boxX, boxY, boxWidth, boxHeight, 5, 5);
-		graphics.setColor(SUGGESTION_BORDER_COLOR);
-		graphics.drawRoundRect(boxX, boxY, boxWidth, boxHeight, 5, 5);
+		String typedPart = suggestion.substring(0, matchedLength);
+		String remainingPart = suggestion.substring(matchedLength);
+		int textX = box.x + BOX_PADDING_X;
+		int textY = box.y + BOX_PADDING_Y + metrics.getAscent();
 
-		graphics.setColor(SUGGESTION_TEXT_COLOR);
-		graphics.drawString(suggestion, boxX + SUGGESTION_PADDING_X, boxY + SUGGESTION_PADDING_Y + metrics.getAscent());
+		graphics.setColor(config.suggestionTypedColor());
+		graphics.drawString(typedPart, textX, textY);
+
+		graphics.setColor(config.suggestionRemainingColor());
+		graphics.drawString(remainingPart, textX + metrics.stringWidth(typedPart), textY);
 	}
 
-	private void renderConfirmBanner(Graphics2D graphics, Widget inputWidget, String text)
+	// Prefers the cursor position within the (now-empty, post-block) input line; falls back to
+	// the whole chatbox container since the PM compose window can disappear entirely on Enter,
+	// even when the send was blocked.
+	private Rectangle bannerAnchor(Widget inputWidget, boolean widgetUsable, String typedText)
 	{
-		// Falls back further to the whole chatbox container: the PM compose window (and its
-		// MES_TEXT2 widget) can itself disappear once it closes on Enter, even when blocked.
-		Widget anchor = (inputWidget != null && !inputWidget.isHidden()) ? inputWidget : client.getWidget(InterfaceID.Chatbox.UNIVERSE);
-		if (anchor == null)
+		if (widgetUsable)
 		{
-			return;
+			Rectangle cursor = ChatInputGeometry.cursorBounds(inputWidget, typedText);
+			if (cursor != null)
+			{
+				return cursor;
+			}
 		}
 
-		graphics.setFont(FontManager.getRunescapeSmallFont());
-		Rectangle bounds = anchor.getBounds();
-		Point location = new Point(bounds.x, bounds.y - 14);
-		OverlayUtil.renderTextLocation(graphics, location, text, BANNER_COLOR);
+		Widget fallback = client.getWidget(InterfaceID.Chatbox.UNIVERSE);
+		if (fallback == null)
+		{
+			return null;
+		}
+
+		Rectangle bounds = fallback.getBounds();
+		return new Rectangle(bounds.x, bounds.y, 0, bounds.height);
+	}
+
+	private void renderConfirmBanner(Graphics2D graphics, Rectangle anchor, String text)
+	{
+		Font font = boxFont();
+		graphics.setFont(font);
+		FontMetrics metrics = graphics.getFontMetrics(font);
+
+		Rectangle box = boxBounds(metrics, text, anchor);
+		drawBox(graphics, box, config.blockedBannerBackgroundColor(), config.blockedBannerBorderColor());
+
+		graphics.setColor(config.blockedBannerTextColor());
+		graphics.drawString(text, box.x + BOX_PADDING_X, box.y + BOX_PADDING_Y + metrics.getAscent());
+	}
+
+	// Derived from the game's own bitmap font rather than a fixed small/regular/large choice, so
+	// the configured size is a plain point value and every box scales continuously with it.
+	private Font boxFont()
+	{
+		return FontManager.getRunescapeFont().deriveFont((float) config.suggestionFontSize());
+	}
+
+	private static Rectangle boxBounds(FontMetrics metrics, String text, Rectangle anchor)
+	{
+		int textWidth = metrics.stringWidth(text);
+		int boxWidth = textWidth + BOX_PADDING_X * 2;
+		int boxHeight = metrics.getAscent() + metrics.getDescent() + BOX_PADDING_Y * 2;
+		int boxX = anchor.x + BOX_GAP;
+		int boxY = anchor.y + (anchor.height - boxHeight) / 2;
+		return new Rectangle(boxX, boxY, boxWidth, boxHeight);
+	}
+
+	private static void drawBox(Graphics2D graphics, Rectangle box, Color background, Color border)
+	{
+		graphics.setColor(background);
+		graphics.fillRoundRect(box.x, box.y, box.width, box.height, 5, 5);
+		graphics.setColor(border);
+		graphics.drawRoundRect(box.x, box.y, box.width, box.height, 5, 5);
 	}
 }
