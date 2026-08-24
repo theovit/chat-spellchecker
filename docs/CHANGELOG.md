@@ -19,3 +19,13 @@
   whole input line; the suggestion is now a boxed inline label next to the word currently being
   typed instead of a hover tooltip; the ignore list is now an editable field in the plugin's
   settings panel instead of hidden config.
+- Added private-message support (highlighting, suggestion, send-block, and right-click ignore
+  all now work in PMs, not just public/clan chat). This took several rounds of in-client
+  debugging: PMs turned out to use an entirely different var (`VarClientID.MESLAYERINPUT` vs
+  `VarClientID.CHATINPUT`) and a different display widget (`Chatbox.MES_TEXT2` vs
+  `Chatbox.INPUT`, discovered by dumping widget candidates live). The PM compose window also
+  closes on Enter even when the send is blocked, so the confirm banner uses a timed fallback
+  there instead of the text-match check public chat uses. `MES_TEXT2` also turned out to be
+  center-aligned text within a much wider container, so bounds math had to become
+  alignment-aware (`Widget#getXTextAlignment()`) instead of assuming left-flush. See
+  docs/DECISIONS.md for the full trail.

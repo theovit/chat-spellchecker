@@ -39,3 +39,29 @@ directly after using the plugin. Since `IgnoreListStore` already persisted throu
 `@ConfigItem` string field on `ChatSpellcheckConfig` with the same key was a ~5-line change — no
 migration needed. `IgnoreListStore` now also subscribes to `ConfigChanged` to reload its
 in-memory cache when the user edits the field directly (bypassing `add()`).
+
+## 2026-08-23 — Private messages need a second var, a second widget, and different confirm-banner logic
+
+Public/clan chat and private messages turned out to be genuinely separate subsystems in the
+client, not just different labels on the same input. Discovered by adding temporary in-client
+diagnostics across several rounds (typing while composing, dumping candidate widgets) after the
+user reported PM support silently not working:
+
+- **Two different vars carry the typed text.** `VarClientID.CHATINPUT` for public/clan/friends
+  chat; `VarClientID.MESLAYERINPUT` for private messages (also used for bank search, GE, etc.).
+  Reading only one broke the other mode - `ChatInputTracker.currentTypedText()` now reads both
+  and uses whichever is non-empty. (`VarClientStr.CHATBOX_TYPED_TEXT`, tried first, turned out to
+  be the deprecated legacy form of `CHATINPUT` - same var, different API surface.)
+- **Two different widgets render the text.** `Chatbox.INPUT` for public chat; `Chatbox.MES_TEXT2`
+  for PMs (`Chatbox.INPUT` stays hidden throughout PM composition). Found by dumping every
+  `Chatbox.*` widget's hidden/text/bounds/font while composing a PM.
+  `ChatInputTracker.currentInputWidget()` resolves the right one.
+- **The PM compose window closes on Enter even when the send is blocked** - the client resets it
+  regardless of `event.consume()`. Public chat's box persists across a block, which is what the
+  "retype it unchanged to confirm" flow relies on. For PMs there's nothing left to compare
+  against, so `SendGuard` now also tracks `pendingSince` and the overlay shows a 3-second timed
+  banner for PMs instead of a text-match-gated one.
+- **`MES_TEXT2` is center-aligned** within a much wider container than the text itself, while
+  `Chatbox.INPUT` is left-flush. `ChatInputGeometry` assumed left-flush, which visually offset the
+  underline/suggestion box to the left of the real glyphs. Fixed by reading
+  `Widget#getXTextAlignment()` and computing the actual rendered text-block start accordingly.

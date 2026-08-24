@@ -8,8 +8,10 @@ import javax.inject.Inject;
 import javax.inject.Singleton;
 import lombok.Getter;
 import net.runelite.api.Client;
-import net.runelite.api.VarClientStr;
 import net.runelite.api.events.ScriptPostFired;
+import net.runelite.api.gameval.InterfaceID;
+import net.runelite.api.gameval.VarClientID;
+import net.runelite.api.widgets.Widget;
 import net.runelite.client.eventbus.Subscribe;
 
 /**
@@ -25,6 +27,11 @@ import net.runelite.client.eventbus.Subscribe;
  * script, so this treats it as a cheap "something happened, check the input" pulse: it re-reads
  * the var on every firing but only does the actual tokenize/dictionary work
  * ({@link #recompute}) when the text differs from what was last seen.
+ *
+ * Two different vars carry the typed text depending on mode, confirmed in-game:
+ * {@code VarClientID.CHATINPUT} for public/clan/friends chat, and
+ * {@code VarClientID.MESLAYERINPUT} for private messages (and other modal text entry, e.g. bank
+ * search). {@link #currentTypedText} reads both and uses whichever is non-empty.
  */
 @Singleton
 class ChatInputTracker
@@ -49,17 +56,41 @@ class ChatInputTracker
 	@Subscribe
 	public void onScriptPostFired(ScriptPostFired event)
 	{
-		String text = client.getVarcStrValue(VarClientStr.CHATBOX_TYPED_TEXT);
-		if (text == null)
-		{
-			text = "";
-		}
+		String text = currentTypedText(client);
 
 		if (!Objects.equals(text, lastText))
 		{
 			lastText = text;
 			recompute(text);
 		}
+	}
+
+	static String currentTypedText(Client client)
+	{
+		String chatbox = client.getVarcStrValue(VarClientID.CHATINPUT);
+		if (chatbox != null && !chatbox.isEmpty())
+		{
+			return chatbox;
+		}
+
+		String mesLayer = client.getVarcStrValue(VarClientID.MESLAYERINPUT);
+		return mesLayer != null ? mesLayer : "";
+	}
+
+	/**
+	 * The widget that renders the current text-entry line. {@code Chatbox.INPUT} for
+	 * public/clan/friends chat; private messages render into {@code Chatbox.MES_TEXT2} instead
+	 * (confirmed in-game - {@code Chatbox.INPUT} stays hidden throughout PM composition).
+	 */
+	static Widget currentInputWidget(Client client)
+	{
+		Widget input = client.getWidget(InterfaceID.Chatbox.INPUT);
+		if (input != null && !input.isHidden())
+		{
+			return input;
+		}
+
+		return client.getWidget(InterfaceID.Chatbox.MES_TEXT2);
 	}
 
 	void reset()

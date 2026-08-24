@@ -12,7 +12,6 @@ import javax.inject.Inject;
 import net.runelite.api.Client;
 import net.runelite.api.FontTypeFace;
 import net.runelite.api.Point;
-import net.runelite.api.VarClientStr;
 import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.widgets.Widget;
 import net.runelite.client.ui.FontManager;
@@ -37,6 +36,7 @@ class ChatSpellcheckOverlay extends Overlay
 	private static final int SUGGESTION_PADDING_X = 5;
 	private static final int SUGGESTION_PADDING_Y = 3;
 	private static final int SUGGESTION_GAP = 6;
+	private static final long PM_BANNER_DURATION_MS = 3000;
 
 	private final Client client;
 	private final ChatInputTracker chatInputTracker;
@@ -57,20 +57,27 @@ class ChatSpellcheckOverlay extends Overlay
 	@Override
 	public Dimension render(Graphics2D graphics)
 	{
-		Widget inputWidget = client.getWidget(InterfaceID.Chatbox.INPUT);
-		if (inputWidget == null || inputWidget.isHidden())
+		Widget inputWidget = ChatInputTracker.currentInputWidget(client);
+		String typedText = ChatInputTracker.currentTypedText(client);
+		boolean widgetUsable = inputWidget != null && !inputWidget.isHidden();
+
+		if (config.blockOnTypos() && sendGuard.isPendingConfirmation())
 		{
-			return null;
+			if (widgetUsable && Objects.equals(typedText, sendGuard.getPendingText()))
+			{
+				// Public/clan chat: the compose box persists across the block, so the banner
+				// stays up until the text changes (matching the "retype it to confirm" flow).
+				renderConfirmBanner(graphics, inputWidget, "Typos found - press Enter again to send");
+			}
+			else if (System.currentTimeMillis() - sendGuard.getPendingSince() < PM_BANNER_DURATION_MS)
+			{
+				// Private messages: the compose window closes on Enter even when blocked, so
+				// there's no persisted text to compare against - show a timed banner instead.
+				renderConfirmBanner(graphics, inputWidget, "Typos found - message blocked, retype to send");
+			}
 		}
 
-		String typedText = client.getVarcStrValue(VarClientStr.CHATBOX_TYPED_TEXT);
-
-		if (config.blockOnTypos() && sendGuard.isPendingConfirmation() && Objects.equals(typedText, sendGuard.getPendingText()))
-		{
-			renderConfirmBanner(graphics, inputWidget);
-		}
-
-		if (config.highlightMisspelledWords())
+		if (widgetUsable && config.highlightMisspelledWords())
 		{
 			renderFlaggedWords(graphics, inputWidget, typedText);
 		}
@@ -144,11 +151,19 @@ class ChatSpellcheckOverlay extends Overlay
 		graphics.drawString(suggestion, boxX + SUGGESTION_PADDING_X, boxY + SUGGESTION_PADDING_Y + metrics.getAscent());
 	}
 
-	private void renderConfirmBanner(Graphics2D graphics, Widget inputWidget)
+	private void renderConfirmBanner(Graphics2D graphics, Widget inputWidget, String text)
 	{
+		// Falls back further to the whole chatbox container: the PM compose window (and its
+		// MES_TEXT2 widget) can itself disappear once it closes on Enter, even when blocked.
+		Widget anchor = (inputWidget != null && !inputWidget.isHidden()) ? inputWidget : client.getWidget(InterfaceID.Chatbox.UNIVERSE);
+		if (anchor == null)
+		{
+			return;
+		}
+
 		graphics.setFont(FontManager.getRunescapeSmallFont());
-		Rectangle bounds = inputWidget.getBounds();
+		Rectangle bounds = anchor.getBounds();
 		Point location = new Point(bounds.x, bounds.y - 14);
-		OverlayUtil.renderTextLocation(graphics, location, "Typos found - press Enter again to send", BANNER_COLOR);
+		OverlayUtil.renderTextLocation(graphics, location, text, BANNER_COLOR);
 	}
 }

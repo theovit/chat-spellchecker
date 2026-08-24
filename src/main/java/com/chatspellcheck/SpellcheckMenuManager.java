@@ -6,9 +6,7 @@ import net.runelite.api.Client;
 import net.runelite.api.MenuAction;
 import net.runelite.api.MenuEntry;
 import net.runelite.api.Point;
-import net.runelite.api.VarClientStr;
 import net.runelite.api.events.MenuEntryAdded;
-import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.widgets.Widget;
 import net.runelite.client.eventbus.Subscribe;
 
@@ -39,13 +37,13 @@ class SpellcheckMenuManager
 			return;
 		}
 
-		Widget inputWidget = client.getWidget(InterfaceID.Chatbox.INPUT);
-		if (inputWidget == null)
+		Widget inputWidget = ChatInputTracker.currentInputWidget(client);
+		if (inputWidget == null || inputWidget.isHidden())
 		{
 			return;
 		}
 
-		String typedText = client.getVarcStrValue(VarClientStr.CHATBOX_TYPED_TEXT);
+		String typedText = ChatInputTracker.currentTypedText(client);
 		Point mouse = client.getMouseCanvasPosition();
 
 		for (FlaggedWord word : chatInputTracker.getFlaggedWords())
@@ -56,7 +54,7 @@ class SpellcheckMenuManager
 				continue;
 			}
 
-			client.createMenuEntry(-1)
+			client.getMenu().createMenuEntry(-1)
 				.setOption("Add '" + word.getWord() + "' to spellcheck ignore list")
 				.setTarget("")
 				.setType(MenuAction.RUNELITE)
@@ -68,6 +66,6 @@ class SpellcheckMenuManager
 	private void onIgnoreClicked(String word)
 	{
 		ignoreListStore.add(word);
-		chatInputTracker.recompute(client.getVarcStrValue(VarClientStr.CHATBOX_TYPED_TEXT));
+		chatInputTracker.recompute(ChatInputTracker.currentTypedText(client));
 	}
 }

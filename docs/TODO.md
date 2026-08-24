@@ -23,6 +23,8 @@ Implementation checklist for [chat-spellcheck-design.md](superpowers/specs/2026-
 - [x] JUnit tests: tokenizer, dictionary lookup/suggest, ignore-list serialization, geometry substring search (17 tests)
 - [x] `./gradlew build` passes
 - [x] Manual in-client verification — highlighting, suggestion, ignore-list, send-block all confirmed working
+- [x] Private-message support — separate var (`MESLAYERINPUT`), separate widget (`MES_TEXT2`),
+      timed confirm banner, alignment-aware geometry; confirmed working in-client
 
 ## Docs
 - [x] `docs/CHANGELOG.md` entry
@@ -30,3 +32,8 @@ Implementation checklist for [chat-spellcheck-design.md](superpowers/specs/2026-
 
 ## Known follow-ups (not blocking)
 - `runelite-plugin.properties` `author` is still a placeholder (`Nobody`) — update if publishing to the plugin hub.
+- Single-letter words (e.g. "a") get flagged as misspelled with odd suggestions (observed: "a" →
+  "ya") — ENABLE1 likely excludes 1-letter entries. Worth special-casing or adding "a"/"i" to the
+  OSRS-terms list.
+- Friends chat / clan chat / group chat compose haven't been explicitly tested — likely fine
+  since they probably share `CHATINPUT`/`Chatbox.INPUT` with public chat, but not confirmed.
