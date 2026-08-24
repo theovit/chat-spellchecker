@@ -1,5 +1,6 @@
 package com.chatspellcheck;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -69,5 +70,34 @@ public class SpellcheckDictionaryTest
 		dictionary.load();
 
 		assertFalse(dictionary.suggest("zzzznotawordatall").isPresent());
+	}
+
+	@Test
+	public void suggestsTheMoreCommonWordWhenMultipleEditsAreEquallyValid()
+	{
+		dictionary.load();
+
+		// "wrold" is one edit from both "world" (common) and "wold" (rare/archaic) - frequency
+		// ranking must prefer the common one, not whichever a HashSet happens to iterate first.
+		assertEquals("world", dictionary.suggest("wrold").orElse(null));
+	}
+
+	@Test
+	public void shortCommonWordsAreCorrectDespiteEnable1ExcludingThem()
+	{
+		dictionary.load();
+
+		assertTrue(dictionary.isCorrect("a"));
+		assertTrue(dictionary.isCorrect("i"));
+	}
+
+	@Test
+	public void contractionsAreCorrectDespiteNeitherWordListContainingApostrophes()
+	{
+		dictionary.load();
+
+		assertTrue(dictionary.isCorrect("don't"));
+		assertTrue(dictionary.isCorrect("Can't"));
+		assertTrue(dictionary.isCorrect("wouldn't"));
 	}
 }

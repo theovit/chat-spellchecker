@@ -6,7 +6,9 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import javax.inject.Singleton;
@@ -23,18 +25,25 @@ import lombok.extern.slf4j.Slf4j;
 class SpellcheckDictionary
 {
 	private static final String ALPHABET = "abcdefghijklmnopqrstuvwxyz";
-	private static final String[] RESOURCES = {
+	private static final String[] PLAIN_RESOURCES = {
 		"/com/chatspellcheck/dictionary-enable1.txt",
-		"/com/chatspellcheck/osrs-terms.txt"
+		"/com/chatspellcheck/osrs-terms.txt",
+		"/com/chatspellcheck/contractions-en.txt"
 	};
+	private static final String FREQUENCY_RESOURCE = "/com/chatspellcheck/word-frequency-en.txt";
 
 	private volatile Set<String> words = Collections.emptySet();
+	// Lower rank = more common. Multiple equally-valid edit-distance candidates are ranked by
+	// this so "world" wins over "wold" for "wrld" instead of an arbitrary HashSet order.
+	private volatile Map<String, Integer> wordRank = Collections.emptyMap();
 	private volatile boolean loaded = false;
 
 	void load()
 	{
-		Set<String> loadedWords = new HashSet<>(180_000);
-		for (String resource : RESOURCES)
+		Set<String> loadedWords = new HashSet<>(220_000);
+		Map<String, Integer> loadedRank = new HashMap<>(50_000);
+
+		for (String resource : PLAIN_RESOURCES)
 		{
 			if (!loadResource(resource, loadedWords))
 			{
@@ -43,9 +52,16 @@ class SpellcheckDictionary
 			}
 		}
 
+		if (!loadFrequencyResource(FREQUENCY_RESOURCE, loadedWords, loadedRank))
+		{
+			log.warn("Chat Spellcheck: failed to load dictionary resource {}, spellcheck disabled for this session", FREQUENCY_RESOURCE);
+			return;
+		}
+
 		words = loadedWords;
+		wordRank = loadedRank;
 		loaded = true;
-		log.debug("Chat Spellcheck: loaded {} words", loadedWords.size());
+		log.debug("Chat Spellcheck: loaded {} words ({} ranked)", loadedWords.size(), loadedRank.size());
 	}
 
 	private boolean loadResource(String resource, Set<String> into)
@@ -78,6 +94,42 @@ class SpellcheckDictionary
 		}
 	}
 
+	// Frequency-list entries are also union-ed into the correctness set: it's real English
+	// vocabulary, and ENABLE1 (a word-game list) excludes short/common words like "a" and "i"
+	// that would otherwise be incorrectly flagged as typos.
+	private boolean loadFrequencyResource(String resource, Set<String> wordsOut, Map<String, Integer> rankOut)
+	{
+		try (InputStream is = SpellcheckDictionary.class.getResourceAsStream(resource))
+		{
+			if (is == null)
+			{
+				return false;
+			}
+
+			try (BufferedReader reader = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8)))
+			{
+				String line;
+				int rank = 0;
+				while ((line = reader.readLine()) != null)
+				{
+					String word = line.trim().toLowerCase();
+					if (!word.isEmpty())
+					{
+						wordsOut.add(word);
+						rankOut.putIfAbsent(word, rank);
+						rank++;
+					}
+				}
+			}
+			return true;
+		}
+		catch (IOException e)
+		{
+			log.warn("Chat Spellcheck: error reading dictionary resource {}", resource, e);
+			return false;
+		}
+	}
+
 	boolean isLoaded()
 	{
 		return loaded;
@@ -88,32 +140,54 @@ class SpellcheckDictionary
 		return words.contains(word.toLowerCase());
 	}
 
-	/** Returns the top suggestion for a misspelled word, or empty if none was found within edit distance 2. */
+	/** Returns the most common valid correction within edit distance 2, or empty if none found. */
 	Optional<String> suggest(String word)
 	{
 		String lower = word.toLowerCase();
 
 		Set<String> edits1 = editsOne(lower);
-		for (String candidate : edits1)
+		Optional<String> best = bestCandidate(edits1);
+		if (best.isPresent())
 		{
-			if (isCorrect(candidate))
-			{
-				return Optional.of(candidate);
-			}
+			return best;
 		}
 
+		Set<String> edits2 = new HashSet<>();
 		for (String e1 : edits1)
 		{
-			for (String e2 : editsOne(e1))
+			edits2.addAll(editsOne(e1));
+		}
+		return bestCandidate(edits2);
+	}
+
+	private Optional<String> bestCandidate(Set<String> candidates)
+	{
+		String best = null;
+		int bestRank = Integer.MAX_VALUE;
+
+		for (String candidate : candidates)
+		{
+			if (!isCorrect(candidate))
 			{
-				if (isCorrect(e2))
+				continue;
+			}
+
+			Integer rank = wordRank.get(candidate);
+			if (rank != null)
+			{
+				if (rank < bestRank)
 				{
-					return Optional.of(e2);
+					bestRank = rank;
+					best = candidate;
 				}
+			}
+			else if (best == null)
+			{
+				best = candidate;
 			}
 		}
 
-		return Optional.empty();
+		return Optional.ofNullable(best);
 	}
 
 	private static Set<String> editsOne(String word)
