@@ -512,7 +512,6 @@ armor
 armour
 amik
 arm's
-arrav
 awowogei
 barcrawl
 bentnoze
